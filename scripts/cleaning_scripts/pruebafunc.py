@@ -30,43 +30,47 @@ def normalize_text(value: str)-> str:
     value = re.sub(r'\s+',' ',value)# Replace multiple spaces to just one
     return value
 
-def clean_cln_11(value: str, id=None, col=None) -> typing.Any:
-    if not isinstance(value, str):
-        return None
-
-    value = re.sub(r"\s+", "", value).upper()
-
-    rfc_regex_grouped = (
-        r'([A-ZÑ&]{3,4}'          # prefijo
-        r'(?:\d{2})'              # año
-        r'(?:0[1-9]|1[0-2])'      # mes
-        r'(?:0[1-9]|[12]\d|3[01])' # día
-        r'[A-Z0-9]{2}[0-9A-Z])'   # homoclave
-    )
-    rfc_full = re.compile(r'^' + rfc_regex_grouped + r'$')
-
-    invalid_prefixes = {"XXXX", "YYYY", "ZZZZ"}  
-    if value[:4] in invalid_prefixes or value[:3] in invalid_prefixes:
-        return None
-
-    if rfc_full.match(value):
+def clean_cln_13(value: str, col: str = None, id: int = None) -> str:
+    if not isinstance(value, (str,int)):
+        if value is None:
+            return None
+        else:
+            raise TypeError(
+                f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                f"del procedimiento con id = {id}, no puede ser procesado como string"
+            )
+        
+    if isinstance(value, int):
         return value
 
-    rfcs = re.findall(rfc_regex_grouped, value)
-    if rfcs:
-        seen, out = set(), []
-        for r in rfcs:
-            if r not in seen:
-                seen.add(r)
-                out.append(r)
-        cleaned_rfc = ", ".join(out)
-        return cleaned_rfc
+    if isinstance(value, str) and len(value) == 1 and not re.match(r'^[A-Z0-9]$', value):
+        return None
+    
+    value = value.upper()
+    value = value.replace('Ñ', '__ENYE__') #este metodo reemplaza la Ñ por _ENYE__ para una depuración limpia sin problemas.
 
-    return None
+    if len(value) <= 1 and value != 'Ñ':
+        return value
+    # Eliminar acentos
+    value = ''.join(
+        c for c in unicodedata.normalize('NFD', value)
+        if unicodedata.category(c) != 'Mn'
+    )
+    # restaurar la Ñ
+    value = value.replace('__ENYE__', 'Ñ')#este metodo restaura la ñ depués de la depuración.
+    # elimina puntuacion (Unicode category P)
+    value = ''.join(
+        c for c in value
+        if unicodedata.category(c)[0] != 'P'
 
-# Test
-print(clean_cln_11("XXXX111111XXX"))  # Now returns None
-print(clean_cln_11("LUCL7610256SA"))  # Returns "LUCL7610256SA"
+    )
+
+    # Reemplazar múltiples espacios por uno solo
+    value = re.sub(r'\s+', ' ', value).strip()
+    
+    return value
+
+
 
 
 
