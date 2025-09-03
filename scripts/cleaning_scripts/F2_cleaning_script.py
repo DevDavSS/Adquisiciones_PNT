@@ -177,6 +177,9 @@ def start_cleaning_process(columnas: list, database) -> None:
                 cleaned_value = clean_blacklist_process(valor,"razon_social_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
+            elif col == "rfc_adjudicado":
+                column_list.append(col)
+                
 
         create_update_query(id_proc, value_list, column_list)
 

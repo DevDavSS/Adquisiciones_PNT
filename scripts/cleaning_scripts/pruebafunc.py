@@ -31,25 +31,36 @@ def normalize_text(value: str)-> str:
     return value
 
 
-def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> typing.Any:
-    path = "rejected_list/"
-    blacklist_path = os.path.join(path, filename)
+def clean_cln_11(value: str, id=None, col=None) -> typing.Any:
     if not isinstance(value, str):
-        if value is None:
-            return value
-        else:
-            raise TypeError(
-                f"El valor de la columna [{col}], es: [{value, type(value)}], "
-                f"del procedimiento con id = {id}, no puede ser procesado como string"
-            )
-        
-    value = normalize_text(value)
-    with open(blacklist_path, "r", encoding="UTF-8") as file:
-        
-        for line in file:
-            line_norm = normalize_text(line.strip())
-            if line_norm in value:
-                return None
-        return value
+        return None
+    value = value.strip().upper()
+    rfc_regex_grouped = (
+        r'([A-ZÑ&]{3,4}'          # prefijo
+        r'\d{2}'                   # año
+        r'(?:0[1-9]|1[0-2])'       # mes (no captura)
+        r'(?:0[1-9]|[12]\d|3[01])' # día (no captura)
+        r'[A-Z0-9]{2}[0-9A-Z])'    # homoclave (3)
+    )
+    rfc_full = re.compile(r'^' + rfc_regex_grouped + r'$')
 
-cleaned_value = clean_blacklist_process("NIETO","adj_primer_apellido_adjudicado.txt")
+    if rfc_full.match(value):
+        return value
+   
+    rfcs = re.findall(rfc_regex_grouped, value) # Si hay varios RFCs dentro del texto, extrae todos
+    if rfcs:
+        # Evitar duplicados
+        seen, out = set(), []
+        for r in rfcs:
+            if r not in seen:
+                seen.add(r)
+                out.append(r)
+        cleaned_rfc = ", ".join(out)
+        return cleaned_rfc
+
+    return None
+
+
+print(clean_cln_11("ZASARF660511T64        JATL661125D17"))                 # -> 'ROJR611222AEA'
+
+
