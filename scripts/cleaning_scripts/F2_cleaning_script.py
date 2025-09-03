@@ -105,9 +105,63 @@ def clean_cln_4(value, id=None, col=None) -> typing.Any:
     else:
         return value
     
+
+def clean_cln_11(value: str, id=None, col=None) -> typing.Any: #RFC Regex
+    if not isinstance(value, str):
+        if value == None:
+            return None
+        else:
+            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                            f"del procedimiento con id = {id}, no puede ser procesado como string")
+
+    value = re.sub(r"\s+", "", value).upper()
+
+    rfc_regex_grouped = (
+        r'([A-ZÑ&]{3,4}'          # prefijo
+        r'(?:\d{2})'              # año
+        r'(?:0[1-9]|1[0-2])'      # mes
+        r'(?:0[1-9]|[12]\d|3[01])' # día
+        r'[A-Z0-9]{2}[0-9A-Z])'   # homoclave
+    )
+    rfc_full = re.compile(r'^' + rfc_regex_grouped + r'$')
+
+    invalid_prefixes = {"XXXX", "YYYY", "ZZZZ"}  
+    if value[:4] in invalid_prefixes or value[:3] in invalid_prefixes:
+        return None
+
+    if rfc_full.match(value):
+        return value
+
+    rfcs = re.findall(rfc_regex_grouped, value)
+    if rfcs:
+        seen, out = set(), []
+        for r in rfcs:
+            if r not in seen:
+                seen.add(r)
+                out.append(r)
+        cleaned_rfc = ", ".join(out)
+        return cleaned_rfc
+
+    return None
+
+def clean_cln_12(value: str, id=None, col=None):
+    
+    if not isinstance(value, str):
+        if value == None:
+            return None
+        else:
+            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                            f"del procedimiento con id = {id}, no puede ser procesado como string")
+    tipo_vialidad = ["Carretera","Privada","Eje vial","Circunvalación","Brecha","Diagonal","Calle","Corredor","Circuito",
+                     "Pasaje","Vereda","Calzada","Viaducto","Prolongación","Boulevard","Peatonal","Retorno","Camino","Callejón",
+                     "Cerrada","Ampliación","Continuación","Terracería","Andador","Periférico","Avenida"
+                     ]
+    if value in tipo_vialidad:
+        return value
+    else:
+        return None
+    
         
-    
-    
 #--------------------------------create query functions-----------------------------
 
 def create_update_query(id_procedimiento: int, cln_value: list, columns: list)->None:
@@ -124,7 +178,10 @@ def create_update_query(id_procedimiento: int, cln_value: list, columns: list)->
 
     query = f"UPDATE {table} SET {set_query} WHERE id_procedimiento = {id_procedimiento};"
     query_block.append(query)
+    
 
+
+ 
 
 #--------------------------------proccess of cleaning -----------------------------------
 
@@ -174,13 +231,19 @@ def start_cleaning_process(columnas: list, database) -> None:
                 value_list.append(cleaned_value)
             elif col == "razon_social_adjudicado":
                 column_list.append(col)
-                cleaned_value = clean_blacklist_process(valor,"razon_social_adjudicado.txt" ,id_proc, col)
+                cleaned_value = clean_blacklist_process(valor,"adj_razon_social_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
             elif col == "rfc_adjudicado":
                 column_list.append(col)
-                
-
+                cleaned_value = clean_cln_11(valor ,id_proc, col)
+                logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
+                value_list.append(cleaned_value)
+            elif col == "domicilio_fiscal_tipo_vialidad":
+                column_list.append(col)
+                cleaned_value = clean_cln_12(valor ,id_proc, col)
+                logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
+                value_list.append(cleaned_value)
         create_update_query(id_proc, value_list, column_list)
 
     with open("queries.txt", "w") as file:
@@ -199,7 +262,7 @@ def start_cleaning_process(columnas: list, database) -> None:
 
 
 
-new_engine = create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/PNT_cleaning_test')
+new_engine = create_engine('postgresql+psycopg2://postgres:lazar@192.168.100.40:5432/PNT_cleaning_test')
 
 
 
