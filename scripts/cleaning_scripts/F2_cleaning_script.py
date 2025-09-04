@@ -2,6 +2,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 import psycopg2 as pg
 import typing
+from typing import Optional, List
 import sys
 import logging
 import unicodedata
@@ -16,28 +17,42 @@ logging.basicConfig(filename='cleaning_errors.log', level=logging.ERROR,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-#-------Global normalization function-------
-def normalize_text(value: str)-> str:
+#-------Global normalization functions-------
+def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: Optional[List[str]] = None) -> str:
     """
-    Normalization
-    -Convert to lowercase
-    -Removes accents
-    -Removes additional spaces
-    -Just leaves basic alphanumeric characters
+    Normalización de texto:
+    - Convierte a minúsculas.
+    - Elimina acentos.
+    - Elimina puntuación y símbolos, permitiendo solo letras, números, espacios
+      y cualquier carácter especificado en allowed_chars.
+    - Colapsa espacios múltiples a uno solo.
     """
     if not isinstance(value, str):
         return value
-    
-    value = value.lower()# convert to lowercase
-    #
-    value = ''.join( #Remove accents
+
+    value = value.upper()
+    #eliminacion de acentos
+    value = ''.join(
         c for c in unicodedata.normalize('NFD', value)
         if unicodedata.category(c) != 'Mn'
     )
-    
-    value = value.strip()#Removes spaces at the beggining to the end
-    value = re.sub(r'\s+',' ',value)# Replace multiple spaces to just one
+
+    # patron dinamico del regex
+    #defecto: letras, números y espacios
+    base_pattern = "A-Z0-9\s"
+    if allowed_chars:
+        # Escapar caracteres especiales para regex
+        extra = "".join(re.escape(char) for char in allowed_chars)
+        base_pattern += extra
+
+    # Eliminar todo lo que no esté en el patrón permitido
+    value = re.sub(fr"[^{base_pattern}]", "", value)
+
+    value = value.strip()
+    value = re.sub(r"\s+", " ", value)
+
     return value
+
 
 #--------------------------------cleaning function throught blacklist process---------------------
 
@@ -125,7 +140,7 @@ def clean_cln_11(value: str, id=None, col=None) -> typing.Any: #RFC Regex
     )
     rfc_full = re.compile(r'^' + rfc_regex_grouped + r'$')
 
-    invalid_prefixes = {"XXXX", "YYYY", "ZZZZ"}  
+    invalid_prefixes = {"XXXX"}  
     if value[:4] in invalid_prefixes or value[:3] in invalid_prefixes:
         return None
 
@@ -152,16 +167,130 @@ def clean_cln_12(value: str, id=None, col=None):
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
+        
     tipo_vialidad = ["Carretera","Privada","Eje vial","Circunvalación","Brecha","Diagonal","Calle","Corredor","Circuito",
                      "Pasaje","Vereda","Calzada","Viaducto","Prolongación","Boulevard","Peatonal","Retorno","Camino","Callejón",
                      "Cerrada","Ampliación","Continuación","Terracería","Andador","Periférico","Avenida"
                      ]
-    if value in tipo_vialidad:
+
+    norm_tipo_vialidad = [normalize_text(tipo) for tipo in tipo_vialidad]
+    if normalize_text(value) in norm_tipo_vialidad:
+        return value
+    else:
+        return None
+
+
+def clean_cln_13(value: any, col: str = None, id: int = None) -> typing.Any:
+    if not isinstance(value, (str,int)):
+        if value is None:
+            return None
+        else:
+            raise TypeError(
+                f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                f"del procedimiento con id = {id}, no puede ser procesado como string"
+            )
+        
+    if isinstance(value, int):
+        return value
+
+    if isinstance(value, str) and len(value) == 1 and not re.match(r'^[A-Z0-9]$', value):
+        return None
+    
+    value = value.upper()
+    value = value.replace('Ñ', '__ENYE__') #este metodo reemplaza la Ñ por _ENYE__ para una depuración limpia sin problemas.
+
+    if len(value) <= 1 and value != 'Ñ':
+        return value
+    # Eliminar acentos
+    value = ''.join(
+        c for c in unicodedata.normalize('NFD', value)
+        if unicodedata.category(c) != 'Mn'
+    )
+    # restaurar la Ñ
+    value = value.replace('__ENYE__', 'Ñ')#este metodo restaura la ñ depués de la depuración.
+    # elimina puntuacion (Unicode category P)
+    value = ''.join(
+        c for c in value
+        if unicodedata.category(c)[0] != 'P'
+
+    )
+
+    # Reemplazar múltiples espacios por uno solo
+    value = re.sub(r'\s+', ' ', value).strip()
+    
+    return value
+
+def clean_cln_14(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+    if not isinstance(value, (str, int)):
+        if value is None:
+            return None
+        else:
+            raise TypeError(
+                f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                f"del procedimiento con id = {id}, no puede ser procesado como string"
+            )
+    
+    # Si es numero, hacerlo en string para poder aplicar el regex
+    if isinstance(value, (int,float)):
+        value = str(value)
+
+    value = normalize_text(value, allowed_chars=['-'])
+
+    if isinstance(value, str) and re.match(r"^(?=.*\d).+$", value):
+        return value
+    else:
+        return None
+
+def clean_cln_15(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+    if not isinstance(value, (str, int)):
+        if value is None:
+            return None
+        else:
+            raise TypeError(
+                f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                f"del procedimiento con id = {id}, no puede ser procesado como string"
+            )
+    
+    # Si es número, conviértelo en string para poder aplicar el regex
+    if isinstance(value, (int, float)):
+        value = str(value)
+    
+    # Normaliza el texto si es string --------------------------
+    value = normalize_text(value, allowed_chars=['-'])
+
+
+    # Verifica si contiene al menos un número
+    if isinstance(value, str) and re.match(r"^(?=.*\d).+$", value):
+        return value
+    elif len(value) < 3:
+        blacklist = ["NA","N","NO","SN"]
+        if value in blacklist:
+            return None
+        else:
+            return value
+    else: 
+        return None
+    
+def clean_cln_16(value: typing.Any, col: str = None, id: int = None): #domicilio_fiscal_nombre_asentamiento
+
+    if not isinstance(value, str):
+        if value == None:
+            return None
+        else:
+            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                            f"del procedimiento con id = {id}, no puede ser procesado como string")
+        
+    tipo_asentamiento = ["Colonia","Ciudad","Fraccionamiento","Parque industrial","Zona industrial","Residencial","Barrio","Pueblo","Sección","Condominio",
+                     "Ranchería","Conjunto habitacional","Ejido","Fracción","Ampliación","Ciudad industrial","Paraje","Manzana","Corredor industrial",
+                     "Exhacienda","Hacienda","Rancho","Privada","Zona federal","Unidad habitacional","Prolongación","Aeropuerto","Rinconada"
+                     ]
+    norm_tipo_asentamiento = [normalize_text(tipo) for tipo in tipo_asentamiento]
+    if normalize_text(value) in norm_tipo_asentamiento:
         return value
     else:
         return None
     
-        
+
 #--------------------------------create query functions-----------------------------
 
 def create_update_query(id_procedimiento: int, cln_value: list, columns: list)->None:
@@ -244,9 +373,43 @@ def start_cleaning_process(columnas: list, database) -> None:
                 cleaned_value = clean_cln_12(valor ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
+            elif col == "domicilio_fiscal_nombre_vialidad":
+                column_list.append(col)
+                cleaned_value = clean_cln_13(valor ,id_proc, col)
+                logging.info(f"domicilio_fiscal_nombre_vialidad: Input={valor}, Output={cleaned_value}, ID={id_proc}")
+                value_list.append(cleaned_value) 
+            elif col == "domicilio_fiscal_numero_exterior":
+                column_list.append(col)
+                cleaned_value = clean_cln_14(valor ,id_proc, col)
+                logging.info(f"domicilio_fiscal_nombre_vialidad: Input={valor}, Output={cleaned_value}, ID={id_proc}")
+                value_list.append(cleaned_value) 
+            elif col == "domicilio_fiscal_numero_interior":
+                column_list.append(col)
+                cleaned_value = clean_cln_15(valor ,id_proc, col)
+                logging.info(f"domicilio_fiscal_nombre_vialidad: Input={valor}, Output={cleaned_value}, ID={id_proc}")
+                value_list.append(cleaned_value) 
+            elif col == "domicilio_fiscal_tipo_asentamiento":
+                column_list.append(col)
+                cleaned_value = clean_cln_16(valor ,id_proc, col)
+                logging.info(f"domicilio_fiscal_nombre_vialidad: Input={valor}, Output={cleaned_value}, ID={id_proc}")
+                value_list.append(cleaned_value) 
+            elif col == "domicilio_fiscal_nombre_asentamiento": 
+                column_list.append(col)
+                cleaned_value = clean_blacklist_process(valor ,"adj_domicilio_fiscal_nombre_asentamiento.txt",id_proc, col)
+                logging.info(f"domicilio_fiscal_nombre_vialidad: Input={valor}, Output={cleaned_value}, ID={id_proc}")
+                value_list.append(cleaned_value) 
+            elif col == "domicilio_fiscal_nombre_localidad": #-----------hasta aqui--------
+                column_list.append(col)
+                cleaned_value = clean_blacklist_process(valor ,"adj_domicilio_fiscal_nombre_localidad.txt",id_proc, col)
+                logging.info(f"domicilio_fiscal_nombre_vialidad: Input={valor}, Output={cleaned_value}, ID={id_proc}")
+                value_list.append(cleaned_value)
+            elif col == "domicilio_fiscal_nombre_municipio":
+                column_list.append(col)
+                value_list.append()
+
         create_update_query(id_proc, value_list, column_list)
 
-    with open("queries.txt", "w") as file:
+    with open("queries.txt", "w", encoding="uft-8") as file:
         for query in query_block:
             file.write(query + "\n")
 
@@ -262,7 +425,7 @@ def start_cleaning_process(columnas: list, database) -> None:
 
 
 
-new_engine = create_engine('postgresql+psycopg2://postgres:lazar@192.168.100.40:5432/PNT_cleaning_test')
+new_engine = create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/PNT_cleaning_test')
 
 
 

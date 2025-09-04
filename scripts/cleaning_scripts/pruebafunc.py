@@ -6,32 +6,46 @@ import sys
 import logging
 import unicodedata
 import re
+from typing import Optional, List
 
 
-def normalize_text(value: str)-> str:
+def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: Optional[List[str]] = None) -> str:
     """
-    Normalization
-    -Convert to lowercase
-    -Removes accents
-    -Removes additional spaces
-    -Just leaves basic alphanumeric characters
+    Normalización de texto:
+    - Convierte a minúsculas.
+    - Elimina acentos.
+    - Elimina puntuación y símbolos, permitiendo solo letras, números, espacios
+      y cualquier carácter especificado en allowed_chars.
+    - Colapsa espacios múltiples a uno solo.
     """
     if not isinstance(value, str):
         return value
-    
-    value = value.lower()# convert to lowercase
-    #
-    value = ''.join( #Remove accents
+
+    value = value.upper()
+    #eliminacion de acentos
+    value = ''.join(
         c for c in unicodedata.normalize('NFD', value)
         if unicodedata.category(c) != 'Mn'
     )
-    
-    value = value.strip()#Removes spaces at the beggining to the end
-    value = re.sub(r'\s+',' ',value)# Replace multiple spaces to just one
+
+    # patron dinamico del regex
+    #defecto: letras, números y espacios
+    base_pattern = "A-Z0-9\s"
+    if allowed_chars:
+        # Escapar caracteres especiales para regex
+        extra = "".join(re.escape(char) for char in allowed_chars)
+        base_pattern += extra
+
+    # Eliminar todo lo que no esté en el patrón permitido
+    value = re.sub(fr"[^{base_pattern}]", "", value)
+
+    value = value.strip()
+    value = re.sub(r"\s+", " ", value)
+
     return value
 
-def clean_cln_13(value: str, col: str = None, id: int = None) -> str:
-    if not isinstance(value, (str,int)):
+def clean_cln_14(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+    if not isinstance(value, (str, int)):
         if value is None:
             return None
         else:
@@ -39,36 +53,27 @@ def clean_cln_13(value: str, col: str = None, id: int = None) -> str:
                 f"El valor de la columna [{col}], es: [{value, type(value)}], "
                 f"del procedimiento con id = {id}, no puede ser procesado como string"
             )
-        
-    if isinstance(value, int):
-        return value
+    
+    # Si es número, conviértelo en string para poder aplicar el regex
+    if isinstance(value, (int, float)):
+        value = str(value)
+    
+    # Normaliza el texto si es string --------------------------
+    value = normalize_text(value, allowed_chars=['-'])
 
-    if isinstance(value, str) and len(value) == 1 and not re.match(r'^[A-Z0-9]$', value):
+
+    # Verifica si contiene al menos un número
+    if isinstance(value, str) and re.match(r"^(?=.*\d).+$", value):
+        return value
+    elif len(value) < 3:
+        blacklist = ["NA","N","NO","SN"]
+        if value in blacklist:
+            return None
+        else:
+            return value
+    else: 
         return None
-    
-    value = value.upper()
-    value = value.replace('Ñ', '__ENYE__') #este metodo reemplaza la Ñ por _ENYE__ para una depuración limpia sin problemas.
-
-    if len(value) <= 1 and value != 'Ñ':
-        return value
-    # Eliminar acentos
-    value = ''.join(
-        c for c in unicodedata.normalize('NFD', value)
-        if unicodedata.category(c) != 'Mn'
-    )
-    # restaurar la Ñ
-    value = value.replace('__ENYE__', 'Ñ')#este metodo restaura la ñ depués de la depuración.
-    # elimina puntuacion (Unicode category P)
-    value = ''.join(
-        c for c in value
-        if unicodedata.category(c)[0] != 'P'
-
-    )
-
-    # Reemplazar múltiples espacios por uno solo
-    value = re.sub(r'\s+', ' ', value).strip()
-    
-    return value
+print(clean_cln_14("S/N"))
 
 
 
