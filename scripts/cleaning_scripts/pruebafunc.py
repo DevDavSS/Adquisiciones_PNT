@@ -7,6 +7,12 @@ import logging
 import unicodedata
 import re
 from typing import Optional, List
+import os
+
+def extract_integer(value):
+    if re.fullmatch(r"\d+(\.\d+)?", value):
+        return str(int(float(value.split('.')[0])))
+    return value
 
 
 def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: Optional[List[str]] = None) -> str:
@@ -43,38 +49,26 @@ def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: O
     value = re.sub(r"\s+", " ", value)
 
     return value
-
-def clean_cln_14(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
-    if not isinstance(value, (str, int)):
+def clean_cln_24(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+    if not isinstance(value, str):
         if value is None:
             return None
         else:
-            raise TypeError(
-                f"El valor de la columna [{col}], es: [{value, type(value)}], "
-                f"del procedimiento con id = {id}, no puede ser procesado como string"
-            )
-    
-    # Si es número, conviértelo en string para poder aplicar el regex
-    if isinstance(value, (int, float)):
-        value = str(value)
-    
-    # Normaliza el texto si es string --------------------------
-    value = normalize_text(value, allowed_chars=['-'])
+            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                            f"del procedimiento con id = {id}, no puede ser procesado como string")
+    value = extract_integer(value)
 
-
-    # Verifica si contiene al menos un número
-    if isinstance(value, str) and re.match(r"^(?=.*\d).+$", value):
-        return value
-    elif len(value) < 3:
-        blacklist = ["NA","N","NO","SN"]
-        if value in blacklist:
-            return None
-        else:
+    try:
+        int(value)
+        if len(value) == 5:
             return value
-    else: 
+        else:
+            return None
+    except:
         return None
-print(clean_cln_14("S/N"))
 
+
+print(clean_cln_24("23000"))
 
 
 

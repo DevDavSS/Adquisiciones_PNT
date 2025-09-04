@@ -53,6 +53,11 @@ def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: O
 
     return value
 
+def extract_integer(value): #Extracción de enteros limpios
+    if re.fullmatch(r"\d+(\.\d+)?", value):
+        return str(int(float(value.split('.')[0])))
+    return value
+
 
 #--------------------------------cleaning function throught blacklist process---------------------
 
@@ -76,7 +81,18 @@ def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> ty
             if line_norm == value:
                 return None
         return value
-#--------------------------------cleaning function with date columns-------------------------------
+#--------------------------------cleaning function throught whitelist or catalog process---------------------
+def clean_whitelist_process(value: str, table: str, id=None, col=None):
+
+    global new_engine
+    query = f"SELECT nombre FROM {table}"
+    dataset = pd.read_sql(query, new_engine)
+    state_list = dataset["nombre"].tolist()
+    if value in state_list:
+        return value
+    else: return None
+
+#--------------------------------cleaning function of date columns-------------------------------
 
 def clean_cln_date(value, id=None, col=None)->typing.Any:
     if isinstance(value, str):
@@ -290,6 +306,52 @@ def clean_cln_16(value: typing.Any, col: str = None, id: int = None): #domicilio
     else:
         return None
     
+def clean_cln_20(value: typing.Any, db_table: Optional[str],col: str = None, id: int = None):
+    if not isinstance(value, str):
+        if value is None:
+            return None
+        else:
+            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                            f"del procedimiento con id = {id}, no puede ser procesado como string")
+    
+    # Primeramente verifica si el valor es un numero, si es un numero, llama a la funcion para normalizarlo a un entero, si no es entero, devuleve el valor normal.
+    value = extract_integer(value)
+
+    # En esta capa verifica si el valor normal no está en la blacklist, si está, la fncion retornara un None y será retornado a la funcion principal
+    value = clean_blacklist_process(value, "adj_domicilios_blacklist.txt", id, col)
+    if not value: # Verifica si es none 
+        return None
+
+
+    # Si pasa la etapa de la lista negra, verificará si es un nombre de un municipio de querétaro registrado en la tabla de municipios_qro de la base de datos, si lo es, retornará su respectiva clave de municipio
+    query = f"SELECT * FROM {db_table}"
+    dataset = pd.read_sql(query, new_engine)
+    municipios_dic = dataset.set_index("clave")["nombre"].to_dict()
+    
+    for clave, nombre in municipios_dic.items(): 
+        if value == normalize_text(nombre):
+            return str(clave)
+
+    # Si no hay coincidencias, devolver tal cual
+
+    return value
+
+def clean_cln_24(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+    if not isinstance(value, str):
+        if value is None:
+            return None
+        else:
+            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                            f"del procedimiento con id = {id}, no puede ser procesado como string")
+    value = extract_integer(value)
+    try:
+        int(value)
+        if len(value) == 5:
+            return value
+        else:
+            return None
+    except:
+        return None
 
 #--------------------------------create query functions-----------------------------
 
@@ -395,18 +457,33 @@ def start_cleaning_process(columnas: list, database) -> None:
                 value_list.append(cleaned_value) 
             elif col == "domicilio_fiscal_nombre_asentamiento": 
                 column_list.append(col)
-                cleaned_value = clean_blacklist_process(valor ,"adj_domicilio_fiscal_nombre_asentamiento.txt",id_proc, col)
+                cleaned_value = clean_blacklist_process(valor ,"adj_domicilios_blacklist.txt",id_proc, col)
                 logging.info(f"domicilio_fiscal_nombre_vialidad: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value) 
-            elif col == "domicilio_fiscal_nombre_localidad": #-----------hasta aqui--------
+            elif col == "domicilio_fiscal_nombre_localidad": 
                 column_list.append(col)
-                cleaned_value = clean_blacklist_process(valor ,"adj_domicilio_fiscal_nombre_localidad.txt",id_proc, col)
+                cleaned_value = clean_blacklist_process(valor ,"adj_domicilios_blacklist.txt",id_proc, col)
                 logging.info(f"domicilio_fiscal_nombre_vialidad: Input={valor}, Output={cleaned_value}, ID={id_proc}")
+                value_list.append(cleaned_value)
+            elif col == "domicilio_fiscal_clave_municipio":
+                column_list.append(col)
+                cleaned_value = clean_cln_20(valor,"municipio_qro",id_proc, col) #se le puede mandar como parametro opcional, la tabla de la base de datos
                 value_list.append(cleaned_value)
             elif col == "domicilio_fiscal_nombre_municipio":
                 column_list.append(col)
-                value_list.append()
-
+                cleaned_value = clean_blacklist_process(valor ,"adj_domicilios_blacklist.txt",id_proc, col)
+                value_list.append(cleaned_value)
+            elif col == "domicilio_fiscal_clave_entidad_federativa":
+                column_list.append(col)
+                cleaned_value = clean_cln_20(valor,"entidad_federativa", id_proc, col) #Se utiliza la misma funcion de limpieza que el de clave de minucipio debido a que ocupa la misma lógica
+                value_list.append(cleaned_value)
+            elif col == "domicilio_fiscal_nombre_entidad_federativa":
+                column_list.append(col)
+                cleaned_value = clean_whitelist_process(valor, "entidad_federativa", id_proc, col)
+                value_list.append(cleaned_value)
+            elif col == "domicilio_fiscal_codigo_postal":
+                column_list.append(col)
+                cleaned_value = ""
         create_update_query(id_proc, value_list, column_list)
 
     with open("queries.txt", "w", encoding="uft-8") as file:
