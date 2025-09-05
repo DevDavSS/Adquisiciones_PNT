@@ -8,8 +8,7 @@ import unicodedata
 import re
 from typing import Optional, List
 import os
-
-
+from rapidfuzz import fuzz, process
 
 
 def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: Optional[List[str]] = None) -> str:
@@ -46,6 +45,49 @@ def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: O
     value = re.sub(r"\s+", " ", value)
 
     return value
+
+
+def clean_whitelist_process(value, table: str, table_column: str, id=None, col=None, threshold: int = 80):
+    global new_engine
+    query = f"SELECT {table_column} FROM {table}"
+    dataset = pd.read_sql(query, new_engine)
+    values = dataset[table_column].dropna().tolist()
+
+    
+    # Normalizar listas y valor
+    norm_list = [normalize_text(item) for item in values]
+    if not value:
+        return None
+    norm_value = normalize_text(value)
+
+    # Exact match / subcadena
+    for element in norm_list:
+        if norm_value in element:
+            return element
+
+    # Fuzzy match
+    for element in norm_list:
+        score = fuzz.partial_ratio(norm_value, element)
+        if score >= threshold:
+            return element
+
+    return None
+def clean_cln_4(value, id=None, col=None) -> typing.Any:
+
+    if not isinstance(value, str):
+        if value == None:
+            return None
+        else:
+            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                            f"del procedimiento con id = {id}, no puede ser procesado como string")
+    
+    value = clean_whitelist_process(value=value, table="tipo_procedimiento", table_column="tipo", id=id, col=col)
+    return value
+
+new_engine = create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/PNT_cleaning_test')
+print(clean_cln_4("Adjudcion")) 
+
+"""
 def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> typing.Any:
     path = "rejected_list/"
     blacklist_path = os.path.join(path, filename)
@@ -101,10 +143,10 @@ def clean_cln_25(value: typing.Any, col: str = None, id: int = None) -> typing.A
     value = clean_whitelist_process(value,"paises",id, col)
     return value
 
-new_engine = create_engine('postgresql+psycopg2://postgres:lazar@192.168.100.40:5432/PNT_cleaning_test')
+new_engine = create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/PNT_cleaning_test')
 print(clean_cln_25("mx"))
 
-
+"""
 
 
 
