@@ -82,15 +82,26 @@ def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> ty
                 return None
         return value
 #--------------------------------cleaning function throught whitelist or catalog process---------------------
-def clean_whitelist_process(value: str, table: str, id=None, col=None):
+def clean_whitelist_process(value, table: str, table_column: Optional[str] = None, id=None, col=None ):
+
 
     global new_engine
     query = f"SELECT nombre FROM {table}"
     dataset = pd.read_sql(query, new_engine)
-    state_list = dataset["nombre"].tolist()
-    if value in state_list:
-        return value
-    else: return None
+    if table_column:
+        list = dataset[table_column].tolist()
+    else:
+        list = dataset["nombre"].tolist() #columna por default
+    
+    norm_list = [normalize_text(item) for item in list]
+    norm_value = normalize_text(value)
+    if not value:
+        return None
+    
+    for element in norm_list:
+        if norm_value in element:
+            return element
+    return None
 
 #--------------------------------cleaning function of date columns-------------------------------
 
@@ -196,7 +207,7 @@ def clean_cln_12(value: str, id=None, col=None):
         return None
 
 
-def clean_cln_13(value: any, col: str = None, id: int = None) -> typing.Any:
+def clean_cln_13(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, (str,int)):
         if value is None:
             return None
@@ -236,7 +247,7 @@ def clean_cln_13(value: any, col: str = None, id: int = None) -> typing.Any:
     
     return value
 
-def clean_cln_14(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+def clean_cln_14(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, (str, int)):
         if value is None:
             return None
@@ -257,7 +268,7 @@ def clean_cln_14(value: typing.Any, col: str = None, id: int = None) -> typing.A
     else:
         return None
 
-def clean_cln_15(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+def clean_cln_15(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, (str, int)):
         if value is None:
             return None
@@ -287,7 +298,7 @@ def clean_cln_15(value: typing.Any, col: str = None, id: int = None) -> typing.A
     else: 
         return None
     
-def clean_cln_16(value: typing.Any, col: str = None, id: int = None): #domicilio_fiscal_nombre_asentamiento
+def clean_cln_16(value: typing.Any, id: int = None, col: str = None): #domicilio_fiscal_nombre_asentamiento
 
     if not isinstance(value, str):
         if value == None:
@@ -306,7 +317,7 @@ def clean_cln_16(value: typing.Any, col: str = None, id: int = None): #domicilio
     else:
         return None
     
-def clean_cln_20(value: typing.Any, db_table: Optional[str],col: str = None, id: int = None):
+def clean_cln_20(value: typing.Any, db_table: Optional[str] = None, id: int = None ,col: str = None):
     if not isinstance(value, str):
         if value is None:
             return None
@@ -336,14 +347,20 @@ def clean_cln_20(value: typing.Any, db_table: Optional[str],col: str = None, id:
 
     return value
 
-def clean_cln_24(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+def clean_cln_24(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, str):
         if value is None:
             return None
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
-    value = extract_integer(value)
+    
+    # checar si tiene decimales 
+    if re.match(r'^\d+\.\d+$', value):
+        cleaned_value = value.replace('.', '')
+        if len(cleaned_value) == 5 and cleaned_value.isdigit():
+            return cleaned_value
+    
     try:
         int(value)
         if len(value) == 5:
@@ -353,6 +370,20 @@ def clean_cln_24(value: typing.Any, col: str = None, id: int = None) -> typing.A
     except:
         return None
 
+def clean_cln_25(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
+    if not isinstance(value, str):
+        if value is None:
+            return None
+        else:
+            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                            f"del procedimiento con id = {id}, no puede ser procesado como string")
+            
+    value = clean_blacklist_process(value, "adj_domicilios_blacklist.txt")
+    if not value: return value
+    if value == "MX":
+        return "MEXICO"
+    value = clean_whitelist_process(value, table="paises", id= id, col=col)
+    return value
 #--------------------------------create query functions-----------------------------
 
 def create_update_query(id_procedimiento: int, cln_value: list, columns: list)->None:
@@ -479,11 +510,15 @@ def start_cleaning_process(columnas: list, database) -> None:
                 value_list.append(cleaned_value)
             elif col == "domicilio_fiscal_nombre_entidad_federativa":
                 column_list.append(col)
-                cleaned_value = clean_whitelist_process(valor, "entidad_federativa", id_proc, col)
+                cleaned_value = clean_whitelist_process(valor, table="entidad_federativa", id= id_proc, col=col)
                 value_list.append(cleaned_value)
             elif col == "domicilio_fiscal_codigo_postal":
                 column_list.append(col)
-                cleaned_value = ""
+                cleaned_value = clean_cln_24(valor, id_proc, col)
+                value_list.append(cleaned_value)
+            elif col == "domicilio_extranjero_ciudad":
+                column_list.append(col)
+                cleaned_value = clean_cln_25(valor, id_proc, col)
         create_update_query(id_proc, value_list, column_list)
 
     with open("queries.txt", "w", encoding="uft-8") as file:
@@ -502,7 +537,7 @@ def start_cleaning_process(columnas: list, database) -> None:
 
 
 
-new_engine = create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/PNT_cleaning_test')
+new_engine = create_engine('postgresql+psycopg2://postgres:lazar@192.168.100.40:5432/PNT_cleaning_test')
 
 
 

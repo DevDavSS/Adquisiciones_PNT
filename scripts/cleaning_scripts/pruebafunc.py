@@ -9,10 +9,7 @@ import re
 from typing import Optional, List
 import os
 
-def extract_integer(value):
-    if re.fullmatch(r"\d+(\.\d+)?", value):
-        return str(int(float(value.split('.')[0])))
-    return value
+
 
 
 def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: Optional[List[str]] = None) -> str:
@@ -49,26 +46,63 @@ def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: O
     value = re.sub(r"\s+", " ", value)
 
     return value
-def clean_cln_24(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> typing.Any:
+    path = "rejected_list/"
+    blacklist_path = os.path.join(path, filename)
+    if not isinstance(value, str):
+        if value is None:
+            return value
+        else:
+            raise TypeError(
+                f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                f"del procedimiento con id = {id}, no puede ser procesado como string"
+            )
+        
+    value = normalize_text(value)
+    with open(blacklist_path, "r", encoding="UTF-8") as file:
+        
+        for line in file:
+            line_norm = normalize_text(line.strip())
+            if line_norm == value:
+                return None
+        return value
+
+def clean_whitelist_process(value: str, table: str, table_column: Optional[str], id=None, col=None):
+
+    global new_engine
+    query = f"SELECT nombre FROM {table}"
+    dataset = pd.read_sql(query, new_engine)
+    if table_column:
+        list = dataset[table_column].tolist()
+    else:
+        list = dataset["nombre"].tolist() #columna por default
+    
+    norm_list = [normalize_text(item) for item in list]
+    norm_value = normalize_text(value)
+    
+    for element in norm_list:
+        if norm_value in element:
+            return element
+    return None
+
+    
+def clean_cln_25(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
     if not isinstance(value, str):
         if value is None:
             return None
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
-    value = extract_integer(value)
+            
+    value = clean_blacklist_process(value, "adj_domicilios_blacklist.txt")
+    if not value: return value
+    if value == "MX":
+        return "MEXICO"
+    value = clean_whitelist_process(value,"paises",id, col)
+    return value
 
-    try:
-        int(value)
-        if len(value) == 5:
-            return value
-        else:
-            return None
-    except:
-        return None
-
-
-print(clean_cln_24("23000"))
+new_engine = create_engine('postgresql+psycopg2://postgres:lazar@192.168.100.40:5432/PNT_cleaning_test')
+print(clean_cln_25("mx"))
 
 
 
