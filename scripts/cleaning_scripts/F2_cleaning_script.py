@@ -98,25 +98,30 @@ def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> ty
                 return None
         return value
 #--------------------------------cleaning function throught whitelist or catalog process---------------------
-def clean_whitelist_process(value, table: str, table_column: Optional[str] = None, id=None, col=None ):
-
-
+def clean_whitelist_process(value, table: str, table_column: str, id=None, col=None, threshold: int = 80):
     global new_engine
-    query = f"SELECT nombre FROM {table}"
+    query = f"SELECT {table_column} FROM {table}"
     dataset = pd.read_sql(query, new_engine)
-    if table_column:
-        list = dataset[table_column].tolist()
-    else:
-        list = dataset["nombre"].tolist() #columna por default
+    values = dataset[table_column].dropna().tolist()
+
     
-    norm_list = [normalize_text(item) for item in list]
-    norm_value = normalize_text(value)
+    # Normalizar listas y valor
+    norm_list = [normalize_text(item) for item in values]
     if not value:
         return None
-    
+    norm_value = normalize_text(value)
+
+    # Exact match / subcadena
     for element in norm_list:
         if norm_value in element:
             return element
+
+    # Fuzzy match
+    for element in norm_list:
+        score = fuzz.partial_ratio(norm_value, element)
+        if score >= threshold:
+            return element
+
     return None
 
 #--------------------------------cleaning function of date columns-------------------------------
@@ -147,8 +152,6 @@ def clean_cln_1(value, id=None, col=None)-> typing.Any:
     
 
 def clean_cln_4(value, id=None, col=None) -> typing.Any:
-    rejected_values = ["Otra (especificar)", "Otro (especificar)"]# add other values in the case of more 
-    normalized_rejected_values = [normalize_text(v) for v in rejected_values]
 
     if not isinstance(value, str):
         if value == None:
@@ -157,11 +160,8 @@ def clean_cln_4(value, id=None, col=None) -> typing.Any:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
     
-    value = normalize_text(value)
-    if value in normalized_rejected_values:
-        return "Otro"
-    else:
-        return value
+    value = clean_whitelist_process(value=value, table="tipo_procedimiento", table_column="tipo", id=id, col=col)
+    return value
     
 
 def clean_cln_11(value: str, id=None, col=None) -> typing.Any: #RFC Regex
@@ -398,7 +398,7 @@ def clean_cln_25(value: typing.Any, id: int = None, col: str = None) -> typing.A
     if not value: return value
     if value == "MX":
         return "MEXICO"
-    value = clean_whitelist_process(value, table="paises", id= id, col=col)
+    value = clean_whitelist_process(value, table="paises",table_column="nombre", id= id, col=col)
     return value
 
 def clean_cln_26(value: typing.Any, id: int = None, col: str = None) -> typing.Any: #domicilio_extranjero_ciudad, domicilio_extranjero_calle, area_solicitante, origen_recursos_publicos,fuente_financiamiento, mecanismos_vigilancia_supervision
@@ -619,7 +619,7 @@ def start_cleaning_process(columnas: list, database) -> None:
                 value_list.append(cleaned_value)
             elif col == "domicilio_fiscal_nombre_entidad_federativa":
                 column_list.append(col)
-                cleaned_value = clean_whitelist_process(valor, table="entidad_federativa", id= id_proc, col=col)
+                cleaned_value = clean_whitelist_process(valor, table="entidad_federativa",table_column="nombre", id= id_proc, col=col)
                 value_list.append(cleaned_value)
             elif col == "domicilio_fiscal_codigo_postal":
                 column_list.append(col)

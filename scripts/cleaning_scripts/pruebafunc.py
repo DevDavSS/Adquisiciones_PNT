@@ -85,7 +85,7 @@ def clean_cln_4(value, id=None, col=None) -> typing.Any:
     return value
 
 new_engine = create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/PNT_cleaning_test')
-print(clean_cln_4("Adjudcion")) 
+print(clean_cln_4("otra")) 
 
 """
 def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> typing.Any:

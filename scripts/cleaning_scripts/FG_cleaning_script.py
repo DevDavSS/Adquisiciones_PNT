@@ -545,7 +545,15 @@ def start_cleaning_process(columnas: list, database) -> None:
                 cleaned_value = clean_cln_4(valor, id_proc, col)
                 logging.info(f"tipo_procedimiento: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
-            elif col == "nombre_adjudicado":
+            elif col == "fecha_contratacion_invitacion":#---------------
+                column_list.append(col)
+                cleaned_value = clean_cln_date(valor)
+                value_list.append(cleaned_value)
+            elif col == "fecha_junta_aclaraciones":#---------------
+                column_list.append(col)
+                cleaned_value = clean_cln_date(valor)
+                value_list.append(cleaned_value)
+            elif col == "nombre_persona_fisica_ganadora":
                 column_list.append(col)
                 cleaned_value = clean_blacklist_process(valor,"adj_nombre_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
