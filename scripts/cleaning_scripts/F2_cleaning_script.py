@@ -19,36 +19,43 @@ logging.basicConfig(filename='cleaning_errors.log', level=logging.ERROR,
 
 
 #-------Global normalization functions-------
-def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: Optional[List[str]] = None) -> str:
+def normalize_text(value: str,col: str = None,id: int = None,allowed_chars: Optional[List[str]] = None,replace_with_space: Optional[List[str]] = None) -> str:
     """
     Normalización de texto:
-    - Convierte a minúsculas.
+    - Convierte a mayúsculas.
     - Elimina acentos.
     - Elimina puntuación y símbolos, permitiendo solo letras, números, espacios
       y cualquier carácter especificado en allowed_chars.
     - Colapsa espacios múltiples a uno solo.
+    - Si replace_with_space está definido, esos caracteres se reemplazan por espacio en vez de eliminarse.
     """
     if not isinstance(value, str):
         return value
 
+    # Convertir a mayúsculas
     value = value.upper()
-    #eliminacion de acentos
+
+    # Eliminación de acentos
     value = ''.join(
         c for c in unicodedata.normalize('NFD', value)
         if unicodedata.category(c) != 'Mn'
     )
 
-    # patron dinamico del regex
-    #defecto: letras, números y espacios
+    # Reemplazar ciertos caracteres por espacio (ejemplo: ".")
+    if replace_with_space:
+        for ch in replace_with_space:
+            value = value.replace(ch, " ")
+
+    # Construir patrón dinámico
     base_pattern = "A-Z0-9\s"
     if allowed_chars:
-        # Escapar caracteres especiales para regex
         extra = "".join(re.escape(char) for char in allowed_chars)
         base_pattern += extra
 
     # Eliminar todo lo que no esté en el patrón permitido
     value = re.sub(fr"[^{base_pattern}]", "", value)
 
+    # Quitar espacios extras
     value = value.strip()
     value = re.sub(r"\s+", " ", value)
 
@@ -63,7 +70,7 @@ def clean_amount(value: typing.Any, id: int = None, col: str = None) -> typing.A
 
     if not isinstance(value, str):
         if value is None: 
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
@@ -71,15 +78,109 @@ def clean_amount(value: typing.Any, id: int = None, col: str = None) -> typing.A
     try:
         if float(value): return float(value)
     except:
-        return None
+        return "NULL"
 
+
+def clean_nombre(value: typing.Any, type: str, id: int = None, col: str = None) -> typing.Any:
+
+    def company_remove(value: str, threshold: int = 90) -> str:
+        """
+        Verifica si el valor contiene algún sufijo de empresa y retorna None si lo encuentra.
+        """
+        if not isinstance(value, str) or not value.strip():
+            return value  # No procesable, retorna tal cual
+
+        # Lista de sufijos
+        suffixes = [
+            "S.A. de C.V.",
+            "S. de R.L. de C.V.",
+            "S.C.",
+            "A.C.",
+            "S.A.",
+            "S. de R.L.",
+            "SAB DE CV",
+        ]
+
+        # Normalizar valor (mayúsculas, puntos por espacios, quitar extras)
+        norm_value = value.upper().replace(".", " ").strip()
+        norm_value = re.sub(r"\s+", " ", norm_value)
+
+        # Normalizar sufijos de la misma manera
+        norm_suffixes = [re.sub(r"\s+", " ", s.upper().replace(".", " ").strip()) for s in suffixes]
+
+        # Revisar si termina con algún sufijo
+        for suffix in norm_suffixes:
+            if fuzz.partial_ratio(norm_value, suffix) >= threshold or norm_value.endswith(suffix):
+                return "NULL"
+
+        return value
+
+    if not isinstance(value, str):
+        if value is None:
+            return "NULL"
+        else:
+            raise TypeError(
+                f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                f"del procedimiento con id = {id}, no puede ser procesado como string"
+            )
+
+    # eliminar valores que son solo números
+    if value.isdigit():
+        return "NULL"
+    try:
+        float(value)
+        return "NULL"
+    except ValueError:
+        pass
+
+    # 🔹 Nueva verificación: si contiene cualquier dígito, devolver None
+    if any(char.isdigit() for char in value):
+        return "NULL"
+
+    # normalizar para procesar prefijos
+    norm_value = normalize_text(value=value, replace_with_space=["."])
+
+    # aplicar blacklist
+    blacklist_value = clean_blacklist_process(value=value, filename="adj_domicilios_blacklist.txt")
+    blacklist_nombre_value = clean_blacklist_process(value=value, filename="adj_nombre_adjudicado.txt")
+    if not blacklist_nombre_value:
+        print("ff")
+        return "NULL"
+    if not blacklist_value:
+        print("ff")
+        return "NULL"
+
+    company_value = company_remove(value)
+    if not company_value:
+        return "NULL"
+
+    # lista de abreviaturas
+    profesiones = [
+        "Lic.", "Ing.", "Dr.", "Doc.", "Mtro.", "Ma.", "Arq.", "C.P.", "Q.F.B.", "M.C.",
+        "M.I.", "M.D.", "M.V.Z.", "Psic.", "Abog.", "T.S.", "Econ.", "Adm.", "C.D.", "Enf.", "C",
+        "CIVIL"
+    ]
+    norm_prof = [normalize_text(abrv, replace_with_space=["."]) for abrv in profesiones]
+
+    tokens = norm_value.split()
+    while tokens and any(fuzz.ratio(tokens[0], abrv) >= 90 for abrv in norm_prof):
+        tokens.pop(0)
+
+    final_name = " ".join(tokens).strip()
+
+    tokens = final_name.split()
+
+    if len(tokens) <= 5:
+        return final_name
+    else:
+        return "--" + final_name
 
 
 #--------------------------------cleaning function throught blacklist process---------------------
-
-def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> typing.Any:
+def clean_blacklist_process(value: str, filename: str , id=None, col=None, threshold=90) -> typing.Any:
     path = "rejected_list/"
     blacklist_path = os.path.join(path, filename)
+
     if not isinstance(value, str):
         if value is None:
             return value
@@ -88,15 +189,25 @@ def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> ty
                 f"El valor de la columna [{col}], es: [{value, type(value)}], "
                 f"del procedimiento con id = {id}, no puede ser procesado como string"
             )
-        
-    value = normalize_text(value)
+
+    value_norm = normalize_text(value).strip()
+
     with open(blacklist_path, "r", encoding="UTF-8") as file:
-        
         for line in file:
             line_norm = normalize_text(line.strip())
-            if line_norm == value:
-                return None
-        return value
+            
+            # ignorar entradas muy cortas
+            if len(line_norm) < 3:
+                continue
+
+            # comparacion exacta o fuzzy completa
+            score = fuzz.ratio(value_norm, line_norm)
+            if score >= threshold:
+                print(f"El valor '{value}' coincide con la blacklist '{line.strip()}' (score {score})")
+                return "NULL"
+
+    return value
+
 #--------------------------------cleaning function throught whitelist or catalog process---------------------
 def clean_whitelist_process(value, table: str, table_column: str, id=None, col=None, threshold: int = 80):
     global new_engine
@@ -108,7 +219,7 @@ def clean_whitelist_process(value, table: str, table_column: str, id=None, col=N
     # Normalizar listas y valor
     norm_list = [normalize_text(item) for item in values]
     if not value:
-        return None
+        return "NULL"
     norm_value = normalize_text(value)
 
     # Exact match / subcadena
@@ -122,7 +233,7 @@ def clean_whitelist_process(value, table: str, table_column: str, id=None, col=N
         if score >= threshold:
             return element
 
-    return None
+    return "NULL"
 
 #--------------------------------cleaning function of date columns-------------------------------
 
@@ -131,7 +242,7 @@ def clean_cln_date(value, id=None, col=None)->typing.Any:
         
         date = pd.to_datetime(value, dayfirst=True, errors="coerce")  # convert
         if pd.isna(date):
-            return None
+            return "NULL"
         # Pasar a formato yyyy-mm-dd (string) 
         return date.strftime("%Y-%m-%d")
 
@@ -142,32 +253,32 @@ def clean_cln_1(value, id=None, col=None)-> typing.Any:
         value = int(value)
     except (ValueError, TypeError):
         logging.error(f"Error al convertir '{value}' a entero en la columna 'ejercicio'")
-        return None
+        return "NULL"
     
     if 2021 <= value <= 2023:
         return value
     else:
         logging.warning(f"Valor '{value}' fuera del rango 2021-2023 en la columna 'ejercicio'")
-        return None
+        return "NULL"
     
 
 def clean_cln_4(value, id=None, col=None) -> typing.Any:
 
     if not isinstance(value, str):
         if value == None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
     
     value = clean_whitelist_process(value=value, table="tipo_procedimiento", table_column="tipo", id=id, col=col)
     return value
-    
+
 
 def clean_cln_11(value: str, id=None, col=None) -> typing.Any: #RFC Regex
     if not isinstance(value, str):
         if value == None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
@@ -185,7 +296,7 @@ def clean_cln_11(value: str, id=None, col=None) -> typing.Any: #RFC Regex
 
     invalid_prefixes = {"XXXX"}  
     if value[:4] in invalid_prefixes or value[:3] in invalid_prefixes:
-        return None
+        return "NULL"
 
     if rfc_full.match(value):
         return value
@@ -200,13 +311,13 @@ def clean_cln_11(value: str, id=None, col=None) -> typing.Any: #RFC Regex
         cleaned_rfc = ", ".join(out)
         return cleaned_rfc
 
-    return None
+    return "NULL"
 
 def clean_cln_12(value: str, id=None, col=None):
     
     if not isinstance(value, str):
         if value == None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
@@ -220,13 +331,13 @@ def clean_cln_12(value: str, id=None, col=None):
     if normalize_text(value) in norm_tipo_vialidad:
         return value
     else:
-        return None
+        return "NULL"
 
 
 def clean_cln_13(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, (str,int)):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(
                 f"El valor de la columna [{col}], es: [{value, type(value)}], "
@@ -237,7 +348,7 @@ def clean_cln_13(value: typing.Any, id: int = None, col: str = None) -> typing.A
         return value
 
     if isinstance(value, str) and len(value) == 1 and not re.match(r'^[A-Z0-9]$', value):
-        return None
+        return "NULL"
     
     value = value.upper()
     value = value.replace('Ñ', '__ENYE__') #este metodo reemplaza la Ñ por _ENYE__ para una depuración limpia sin problemas.
@@ -266,7 +377,7 @@ def clean_cln_13(value: typing.Any, id: int = None, col: str = None) -> typing.A
 def clean_cln_14(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, (str, int)):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(
                 f"El valor de la columna [{col}], es: [{value, type(value)}], "
@@ -282,12 +393,12 @@ def clean_cln_14(value: typing.Any, id: int = None, col: str = None) -> typing.A
     if isinstance(value, str) and re.match(r"^(?=.*\d).+$", value):
         return value
     else:
-        return None
+        return "NULL"
 
 def clean_cln_15(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, (str, int)):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(
                 f"El valor de la columna [{col}], es: [{value, type(value)}], "
@@ -308,17 +419,17 @@ def clean_cln_15(value: typing.Any, id: int = None, col: str = None) -> typing.A
     elif len(value) < 3:
         blacklist = ["NA","N","NO","SN"] #Hay veces en las que el numero son solamente letras, ejemplo: AB, AC, BA, etc sin embargo aqui se evalua que no pase de 2 caracteres ni que sea igual a esas abreviaciones de la blacklist
         if value in blacklist:
-            return None
+            return "NULL"
         else:
             return value
     else: 
-        return None
+        return "NULL"
     
 def clean_cln_16(value: typing.Any, id: int = None, col: str = None): #domicilio_fiscal_nombre_asentamiento
 
     if not isinstance(value, str):
         if value == None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
@@ -331,12 +442,12 @@ def clean_cln_16(value: typing.Any, id: int = None, col: str = None): #domicilio
     if normalize_text(value) in norm_tipo_asentamiento:
         return value
     else:
-        return None
+        return "NULL"
     
 def clean_cln_20(value: typing.Any, db_table: Optional[str] = None, id: int = None ,col: str = None):
     if not isinstance(value, str):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
@@ -347,7 +458,7 @@ def clean_cln_20(value: typing.Any, db_table: Optional[str] = None, id: int = No
     # En esta capa verifica si el valor normal no está en la blacklist, si está, la fncion retornara un None y será retornado a la funcion principal
     value = clean_blacklist_process(value, "adj_domicilios_blacklist.txt", id, col)
     if not value: # Verifica si es none 
-        return None
+        return "NULL"
 
 
     # Si pasa la etapa de la lista negra, verificará si es un nombre de un municipio de querétaro registrado en la tabla de municipios_qro de la base de datos, si lo es, retornará su respectiva clave de municipio
@@ -366,7 +477,7 @@ def clean_cln_20(value: typing.Any, db_table: Optional[str] = None, id: int = No
 def clean_cln_24(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, str):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
@@ -382,14 +493,14 @@ def clean_cln_24(value: typing.Any, id: int = None, col: str = None) -> typing.A
         if len(value) == 5:
             return value
         else:
-            return None
+            return "NULL"
     except:
-        return None
+        return "NULL"
 
 def clean_cln_25(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, str):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
@@ -404,31 +515,31 @@ def clean_cln_25(value: typing.Any, id: int = None, col: str = None) -> typing.A
 def clean_cln_26(value: typing.Any, id: int = None, col: str = None) -> typing.Any: #domicilio_extranjero_ciudad, domicilio_extranjero_calle, area_solicitante, origen_recursos_publicos,fuente_financiamiento, mecanismos_vigilancia_supervision
     if not isinstance(value, str):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
     try:
         if int(value) or float(value):
-            return None
+            return "NULL"
     except:
         pass
     value = clean_blacklist_process(value=value, filename="adj_domicilios_blacklist.txt", id=id, col=col)
 
     if not value:
-        return None
+        return "NULL"
     else:
         return value
 
 def clean_cln_38(value: typing.Any, id: int = None, col: str = None) -> typing.Any: #Tipo de moneda, verifica con listas si hay abreviaciones relaconadas con pesos mexicanos o dolares
     if not isinstance(value, str):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
     value = normalize_text(value)
-    if not value: return None
+    if not value: return "NULL"
 
     abbrev_files = {
         "MXN": "abreviaciones/mxn.txt",
@@ -450,11 +561,11 @@ def clean_cln_38(value: typing.Any, id: int = None, col: str = None) -> typing.A
         if usd_ab == value:
             return "USD"
 
-    return None
+    return "NULL"
 def clean_cln_40(value: typing.Any, id: int = None, col: str = None) -> typing.Any:
     if not isinstance(value, str):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
@@ -471,25 +582,25 @@ def clean_cln_40(value: typing.Any, id: int = None, col: str = None) -> typing.A
             score = fuzz.partial_ratio(kw_element,value)
             if score >= 80:
                 return new_val
-    return None
+    return "NULL"
 
 def clean_cln_46(value: typing.Any, id: int = None, col: str = None) -> typing.Any: #mecanismos_vigilincia_supervision
     if not isinstance(value, str):
         if value is None:
-            return None
+            return "NULL"
         else:
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
     try:
         if int(value) or float(value):
-            return None
+            return "NULL"
     except:
         pass
     norm_value = normalize_text(value=value, allowed_chars=["-"])
     value = clean_blacklist_process(value=value, filename="adj_domicilios_blacklist.txt", id=id, col=col)
 
     if not value:
-        return None
+        return "NULL"
     else:
         return norm_value
 
@@ -547,17 +658,17 @@ def start_cleaning_process(columnas: list, database) -> None:
                 value_list.append(cleaned_value)
             elif col == "nombre_adjudicado":
                 column_list.append(col)
-                cleaned_value = clean_blacklist_process(valor,"adj_nombre_adjudicado.txt" ,id_proc, col)
+                cleaned_value = clean_nombre(valor,"adj_nombre_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
             elif col == "primer_apellido_adjudicado":
                 column_list.append(col)
-                cleaned_value = clean_blacklist_process(valor,"adj_primer_apellido_adjudicado.txt" ,id_proc, col)
+                cleaned_value = clean_nombre(valor,"adj_primer_apellido_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)                
             elif col == "segundo_apellido_adjudicado":
                 column_list.append(col)
-                cleaned_value = clean_blacklist_process(valor,"adj_segundo_apellido_adjudicado.txt" ,id_proc, col)
+                cleaned_value = clean_nombre(valor,"adj_segundo_apellido_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
             elif col == "razon_social_adjudicado":
@@ -627,10 +738,6 @@ def start_cleaning_process(columnas: list, database) -> None:
                 value_list.append(cleaned_value)
             elif col == "domicilio_extranjero_ciudad":
                 column_list.append(col)
-                cleaned_value = clean_cln_25(valor, id_proc, col)
-                value_list.append(valor)
-            elif col == "domicilio_extranjero_ciudad":
-                column_list.append(col)
                 cleaned_value = clean_cln_26(value=valor, id=id_proc, col=col)
                 value_list.append(cleaned_value)
             elif col == "domicilio_extranjero_calle":
@@ -678,10 +785,6 @@ def start_cleaning_process(columnas: list, database) -> None:
                 cleaned_value = clean_amount(value=valor, id=id_proc, col=col)
                 value_list.append(valor) 
             elif col == "tipo_moneda":
-                column_list.append(col)
-                cleaned_value = clean_cln_38(value=valor, id=id_proc, col=col)
-                value_list.append(cleaned_value)
-            elif col == "tipo_cambio_referencia":
                 column_list.append(col)
                 cleaned_value = clean_cln_38(value=valor, id=id_proc, col=col)
                 value_list.append(cleaned_value)
@@ -741,7 +844,7 @@ def start_cleaning_process(columnas: list, database) -> None:
 
 
 
-new_engine = create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/PNT_cleaning_test')
+new_engine = create_engine('postgresql+psycopg2://postgres:lazar@192.168.100.40:5432/PNT_cleaning_test')
 
 database = pd.read_sql_table(table, new_engine)
 

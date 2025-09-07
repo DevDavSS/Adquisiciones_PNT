@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 #configuracion de la base de datos con sqlalchemy
 #PostgreSQL: 'postgresql+psycopg2://usuario:contraseña@host:puerto/nombre_db'
 
-new_engine =  create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/Prueba')
+new_engine =  create_engine('postgresql+psycopg2://postgres:lazar@l92.168.100.40:5432/PNT_cleaning_test')
 
 tabla = 'procedimientos_adj'
 

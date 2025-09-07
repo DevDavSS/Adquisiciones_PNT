@@ -10,7 +10,7 @@ import re
 import os
 from rapidfuzz import fuzz, process
 
-table = 'procedimientos_adj'
+table = 'procedimientos_lic_inv'
 query_block=[]
 
 rejected_col=["id","id_procedimiento"]
@@ -655,7 +655,7 @@ def start_cleaning_process(columnas: list, database) -> None:
                 cleaned_value = clean_cln_4(valor, id_proc, col)
                 logging.info(f"tipo_procedimiento: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
-            elif col == "fecha_contratacion_invitacion":#---------------
+            elif col == "fecha_convocatoria_invitacion":#---------------
                 column_list.append(col)
                 cleaned_value = clean_cln_date(valor)
                 value_list.append(cleaned_value)
@@ -663,27 +663,27 @@ def start_cleaning_process(columnas: list, database) -> None:
                 column_list.append(col)
                 cleaned_value = clean_cln_date(valor)
                 value_list.append(cleaned_value)
-            elif col == "nombre_persona_fisica_ganadora":#--
+            elif col == "nombre_contratista_proveedor":#--
                 column_list.append(col)
                 cleaned_value = clean_nombre(valor,"adj_nombre_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
-            elif col == "primer_apellido_persona_fisica_ganadora":
+            elif col == "primer_apellido_contratista":
                 column_list.append(col)
                 cleaned_value =clean_nombre(valor,"adj_primer_apellido_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)                
-            elif col == "segundo_apellido_persona_fisica_ganadora":
+            elif col == "segundo_apellido_contratista":
                 column_list.append(col)
                 cleaned_value = clean_nombre(valor,"adj_segundo_apellido_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
-            elif col == "denominacion_razon_social":
+            elif col == "razon_social_contratista":
                 column_list.append(col)
                 cleaned_value = clean_blacklist_process(valor,"adj_razon_social_adjudicado.txt" ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
                 value_list.append(cleaned_value)
-            elif col == "rfc_contratista_proveedor":
+            elif col == "rfc_contratista":
                 column_list.append(col)
                 cleaned_value = clean_cln_11(valor ,id_proc, col)
                 logging.info(f"nombre_adjudicado: Input={valor}, Output={cleaned_value}, ID={id_proc}")
@@ -815,11 +815,11 @@ def start_cleaning_process(columnas: list, database) -> None:
                 column_list.append(col)
                 cleaned_value = clean_amount(value=valor, id=id_proc, col=col)
                 value_list.append(valor) 
-            elif col == "fecha_inicio_plazo_entrega":
+            elif col == "fecha_inicio_plazo_entrega_ejecucion":
                 column_list.append(col)
                 cleaned_value = clean_cln_date(value=valor, id=id_proc, col=col)
                 value_list.append(cleaned_value)
-            elif col == "fecha_termino_plazo_entrega":#-----
+            elif col == "fecha_termino_plazo_entrega_ejecucion":#-----
                 column_list.append(col)
                 cleaned_value = clean_cln_date(value=valor, id=id_proc, col=col)
                 value_list.append(cleaned_value)
@@ -851,7 +851,6 @@ def start_cleaning_process(columnas: list, database) -> None:
                 column_list.append(col)
                 cleaned_value = clean_cln_date(value=valor, id=id_proc, col=col)
                 value_list.append(cleaned_value)
-
 
 
         create_update_query(id_proc, value_list, column_list)

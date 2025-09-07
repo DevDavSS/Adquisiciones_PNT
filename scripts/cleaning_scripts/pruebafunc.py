@@ -11,86 +11,53 @@ import os
 from rapidfuzz import fuzz, process
 
 
-def normalize_text(value: str, col: str = None, id: int = None, allowed_chars: Optional[List[str]] = None) -> str:
+def normalize_text(value: str,col: str = None,id: int = None,allowed_chars: Optional[List[str]] = None,replace_with_space: Optional[List[str]] = None) -> str:
     """
     Normalización de texto:
-    - Convierte a minúsculas.
+    - Convierte a mayúsculas.
     - Elimina acentos.
     - Elimina puntuación y símbolos, permitiendo solo letras, números, espacios
       y cualquier carácter especificado en allowed_chars.
     - Colapsa espacios múltiples a uno solo.
+    - Si replace_with_space está definido, esos caracteres se reemplazan por espacio en vez de eliminarse.
     """
     if not isinstance(value, str):
         return value
 
+    # Convertir a mayúsculas
     value = value.upper()
-    #eliminacion de acentos
+
+    # Eliminación de acentos
     value = ''.join(
         c for c in unicodedata.normalize('NFD', value)
         if unicodedata.category(c) != 'Mn'
     )
 
-    # patron dinamico del regex
-    #defecto: letras, números y espacios
+    # Reemplazar ciertos caracteres por espacio (ejemplo: ".")
+    if replace_with_space:
+        for ch in replace_with_space:
+            value = value.replace(ch, " ")
+
+    # Construir patrón dinámico
     base_pattern = "A-Z0-9\s"
     if allowed_chars:
-        # Escapar caracteres especiales para regex
         extra = "".join(re.escape(char) for char in allowed_chars)
         base_pattern += extra
 
     # Eliminar todo lo que no esté en el patrón permitido
     value = re.sub(fr"[^{base_pattern}]", "", value)
 
+    # Quitar espacios extras
     value = value.strip()
     value = re.sub(r"\s+", " ", value)
 
     return value
 
 
-def clean_whitelist_process(value, table: str, table_column: str, id=None, col=None, threshold: int = 80):
-    global new_engine
-    query = f"SELECT {table_column} FROM {table}"
-    dataset = pd.read_sql(query, new_engine)
-    values = dataset[table_column].dropna().tolist()
-
-    
-    # Normalizar listas y valor
-    norm_list = [normalize_text(item) for item in values]
-    if not value:
-        return None
-    norm_value = normalize_text(value)
-
-    # Exact match / subcadena
-    for element in norm_list:
-        if norm_value in element:
-            return element
-
-    # Fuzzy match
-    for element in norm_list:
-        score = fuzz.partial_ratio(norm_value, element)
-        if score >= threshold:
-            return element
-
-    return None
-def clean_cln_4(value, id=None, col=None) -> typing.Any:
-
-    if not isinstance(value, str):
-        if value == None:
-            return None
-        else:
-            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
-                            f"del procedimiento con id = {id}, no puede ser procesado como string")
-    
-    value = clean_whitelist_process(value=value, table="tipo_procedimiento", table_column="tipo", id=id, col=col)
-    return value
-
-new_engine = create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/PNT_cleaning_test')
-print(clean_cln_4("otra")) 
-
-"""
-def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> typing.Any:
+def clean_blacklist_process(value: str, filename: str , id=None, col=None, threshold=90) -> typing.Any:
     path = "rejected_list/"
     blacklist_path = os.path.join(path, filename)
+
     if not isinstance(value, str):
         if value is None:
             return value
@@ -99,54 +66,120 @@ def clean_blacklist_process(value: str, filename: str , id=None, col=None) -> ty
                 f"El valor de la columna [{col}], es: [{value, type(value)}], "
                 f"del procedimiento con id = {id}, no puede ser procesado como string"
             )
-        
-    value = normalize_text(value)
+
+    value_norm = normalize_text(value).strip()
+
     with open(blacklist_path, "r", encoding="UTF-8") as file:
-        
         for line in file:
             line_norm = normalize_text(line.strip())
-            if line_norm == value:
+            
+            # ignorar entradas muy cortas
+            if len(line_norm) < 3:
+                continue
+
+            # comparacion exacta o fuzzy completa
+            score = fuzz.ratio(value_norm, line_norm)
+            if score >= threshold:
+                print(f"El valor '{value}' coincide con la blacklist '{line.strip()}' (score {score})")
                 return None
-        return value
 
-def clean_whitelist_process(value: str, table: str, table_column: Optional[str], id=None, col=None):
-
-    global new_engine
-    query = f"SELECT nombre FROM {table}"
-    dataset = pd.read_sql(query, new_engine)
-    if table_column:
-        list = dataset[table_column].tolist()
-    else:
-        list = dataset["nombre"].tolist() #columna por default
-    
-    norm_list = [normalize_text(item) for item in list]
-    norm_value = normalize_text(value)
-    
-    for element in norm_list:
-        if norm_value in element:
-            return element
-    return None
+    return value
 
     
-def clean_cln_25(value: typing.Any, col: str = None, id: int = None) -> typing.Any:
+
+def clean_nombre(value: typing.Any,type: str ,id: int = None, col: str = None) -> typing.Any:
+        
+    def company_remove(value: str, threshold: int = 90) -> str:
+            """
+            Verifica si el valor contiene algún sufijo de empresa y retorna None si lo encuentra.
+            """
+            if not isinstance(value, str) or not value.strip():
+                return value  # No procesable, retorna tal cual
+
+            # Lista de sufijos
+            suffixes = [
+                "S.A. de C.V.",
+                "S. de R.L. de C.V.",
+                "S.C.",
+                "A.C.",
+                "S.A.",
+                "S. de R.L.",
+                "SAB DE CV",
+            ]
+
+            # Normalizar valor (mayúsculas, puntos por espacios, quitar extras)
+            norm_value = value.upper().replace(".", " ").strip()
+            norm_value = re.sub(r"\s+", " ", norm_value)
+
+            # Normalizar sufijos de la misma manera
+            norm_suffixes = [re.sub(r"\s+", " ", s.upper().replace(".", " ").strip()) for s in suffixes]
+
+            # Revisar si termina con algún sufijo
+            for suffix in norm_suffixes:
+                # fuzzy match al final de la cadena
+                if fuzz.partial_ratio(norm_value, suffix) >= threshold or norm_value.endswith(suffix):
+                    return None
+
+            return value
+        
     if not isinstance(value, str):
         if value is None:
             return None
         else:
-            raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
-                            f"del procedimiento con id = {id}, no puede ser procesado como string")
+            raise TypeError(
+                f"El valor de la columna [{col}], es: [{value, type(value)}], "
+                f"del procedimiento con id = {id}, no puede ser procesado como string"
+            )
+
+    # eliminar valores que son solo números
+    if value.isdigit():
+        return None
+    try:
+        float(value)
+        return None
+    except ValueError:
+        pass
+
+    # normalizar para procesar prefijos
+    norm_value = normalize_text(value=value, replace_with_space=["."])
+
+    # aplicar blacklist
+    blacklist_value = clean_blacklist_process(value=value, filename="adj_domicilios_blacklist.txt")
+    if not blacklist_value:
+        print("ff")
+        return None
+
+    company_value = company_remove(value)
+    if not company_value:
+        return None
+    
+    # lista de abreviaturas
+    profesiones = [
+        "Lic.", "Ing.", "Dr.", "Doc.", "Mtro.", "Ma.", "Arq.", "C.P.", "Q.F.B.", "M.C.",
+        "M.I.", "M.D.", "M.V.Z.", "Psic.", "Abog.", "T.S.", "Econ.", "Adm.", "C.D.", "Enf.", "C",
+        "CIVIL"  # si quieres considerar "CIVIL" como sub-prefijo
+    ]
+    norm_prof = [normalize_text(abrv, replace_with_space=["."]) for abrv in profesiones]
+
+    # eliminar prefijos iterativamente mientras coincida
+    tokens = norm_value.split()
+    while tokens and any(fuzz.ratio(tokens[0], abrv) >= 90 for abrv in norm_prof):
+        tokens.pop(0)
+
+    # reconstruir el nombre final
+    final_name = " ".join(tokens).strip()
+    
+    tokens = final_name.split()
+
+    if len(tokens) <= 5:
+        return final_name
+    else: return "--"+final_name
+
+ 
             
-    value = clean_blacklist_process(value, "adj_domicilios_blacklist.txt")
-    if not value: return value
-    if value == "MX":
-        return "MEXICO"
-    value = clean_whitelist_process(value,"paises",id, col)
-    return value
+print(clean_nombre(value="Kareen Giselle", type=2))
 
-new_engine = create_engine('postgresql+psycopg2://postgres:lazar@localhost:5432/PNT_cleaning_test')
-print(clean_cln_25("mx"))
-
-"""
+    
 
 
 
