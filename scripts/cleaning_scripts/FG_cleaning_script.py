@@ -10,7 +10,7 @@ import re
 import os
 from rapidfuzz import fuzz, process
 
-table = 'procedimientos_adj'
+table = 'procedimientos_lic_adj_inv'
 query_block=[]
 
 rejected_col=["id","id_procedimiento"]
@@ -143,15 +143,15 @@ def clean_nombre(value: typing.Any, type: str, id: int = None, col: str = None) 
     # aplicar blacklist
     blacklist_value = clean_blacklist_process(value=value, filename="adj_domicilios_blacklist.txt")
     blacklist_nombre_value = clean_blacklist_process(value=value, filename="adj_nombre_adjudicado.txt")
-    if not blacklist_nombre_value:
+    if blacklist_nombre_value == "NULL":
         print("ff")
         return "NULL"
-    if not blacklist_value:
+    if blacklist_value == "NULL":
         print("ff")
         return "NULL"
 
     company_value = company_remove(value)
-    if not company_value:
+    if company_value == "NULL":
         return "NULL"
 
     # lista de abreviaturas
@@ -206,7 +206,7 @@ def clean_blacklist_process(value: str, filename: str , id=None, col=None, thres
                 print(f"El valor '{value}' coincide con la blacklist '{line.strip()}' (score {score})")
                 return "NULL"
 
-    return value
+    return value_norm
 
 #--------------------------------cleaning function throught whitelist or catalog process---------------------
 def clean_whitelist_process(value, table: str, table_column: str, id=None, col=None, threshold: int = 80):
@@ -506,7 +506,7 @@ def clean_cln_25(value: typing.Any, id: int = None, col: str = None) -> typing.A
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
             
     value = clean_blacklist_process(value, "adj_domicilios_blacklist.txt")
-    if not value: return value
+    if value == "NULL": return value
     if value == "MX":
         return "MEXICO"
     value = clean_whitelist_process(value, table="paises",table_column="nombre", id= id, col=col)
@@ -526,7 +526,7 @@ def clean_cln_26(value: typing.Any, id: int = None, col: str = None) -> typing.A
         pass
     value = clean_blacklist_process(value=value, filename="adj_domicilios_blacklist.txt", id=id, col=col)
 
-    if not value:
+    if value == "NULL":
         return "NULL"
     else:
         return value
@@ -539,7 +539,7 @@ def clean_cln_38(value: typing.Any, id: int = None, col: str = None) -> typing.A
             raise TypeError(f"El valor de la columna [{col}], es: [{value, type(value)}], "
                             f"del procedimiento con id = {id}, no puede ser procesado como string")
     value = normalize_text(value)
-    if not value: return "NULL"
+    if value == "NULL": return "NULL"
 
     abbrev_files = {
         "MXN": "abreviaciones/mxn.txt",
@@ -599,7 +599,7 @@ def clean_cln_46(value: typing.Any, id: int = None, col: str = None) -> typing.A
     norm_value = normalize_text(value=value, allowed_chars=["-"])
     value = clean_blacklist_process(value=value, filename="adj_domicilios_blacklist.txt", id=id, col=col)
 
-    if not value:
+    if value == "NULL":
         return "NULL"
     else:
         return norm_value
@@ -853,8 +853,6 @@ def start_cleaning_process(columnas: list, database) -> None:
                 value_list.append(cleaned_value)
 
 
-
-        create_update_query(id_proc, value_list, column_list)
 
     with open("queries.txt", "w", encoding="utf-8") as file:
         for query in query_block:
